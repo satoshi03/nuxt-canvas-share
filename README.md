@@ -2,6 +2,8 @@
 
 > Browser based sharing canvas app via Firebase and NuxtJS.
 
+![demo](https://media.giphy.com/media/7Xv4RtbXpWAJcXbrKC/giphy.gif)
+
 ## Build Setup
 
 ``` bash

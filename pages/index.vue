@@ -1,51 +1,22 @@
 <template>
   <v-layout
-    column
-    justify-center
-    align-center>
+    row
+    justifiy-center
+    align-center
+    >
     <v-flex
       xs12
-      sm8
-      md6>
-      <div class="text-xs-center">
-        <logo/>
-        <vuetify-logo/>
-      </div>
+      sm6
+    >
       <v-card>
-        <v-card-title class="headline">Welcome to the Vuetify + Nuxt.js template</v-card-title>
-        <v-card-text>
-          <p>Vuetify is a progressive Material Design component framework for Vue.js. It was designed to empower developers to create amazing applications.</p>
-          <p>For more information on Vuetify, check out the <a
-            href="https://vuetifyjs.com"
-            target="_blank">documentation</a>.</p>
-          <p>If you have questions, please join the official <a
-            href="https://chat.vuetifyjs.com/"
-            target="_blank"
-            title="chat">discord</a>.</p>
-          <p>Find a bug? Report it on the github <a
-            href="https://github.com/vuetifyjs/vuetify/issues"
-            target="_blank"
-            title="contribute">issue board</a>.</p>
-          <p>Thank you for developing with Vuetify and I look forward to bringing more exciting features in the future.</p>
-          <div class="text-xs-right">
-            <em><small>&mdash; John Leider</small></em>
+        <v-card-media>
+          <div ref="container">
+            <canvas ref="canvas" width=600 height=400>
+            </canvas>
           </div>
-          <hr class="my-3">
-          <a
-            href="https://nuxtjs.org/"
-            target="_blank">Nuxt Documentation</a>
-          <br>
-          <a
-            href="https://github.com/nuxt/nuxt.js"
-            target="_blank">Nuxt GitHub</a>
-        </v-card-text>
+        </v-card-media>
         <v-card-actions>
-          <v-spacer/>
-          <v-btn
-            color="primary"
-            flat
-            nuxt
-            to="/inspire">Continue</v-btn>
+          <v-btn @click="reset()">RESET</v-btn>
         </v-card-actions>
       </v-card>
     </v-flex>
@@ -53,13 +24,157 @@
 </template>
 
 <script>
-import Logo from '~/components/Logo.vue'
-import VuetifyLogo from '~/components/VuetifyLogo.vue'
+import Konva from "konva"
+import firebase from '~/plugins/firebase'
 
 export default {
-  components: {
-    Logo,
-    VuetifyLogo
+  data () {
+    return {
+      canvas: {},
+      stage: {},
+      drawLayer: {},
+      image: {},
+      context: {},
+      canvasConfig: {
+        width: 600,
+        height: 400,
+      },
+      drawConfig: {
+        strokeStyle: "#df4b26",
+        lineJoin: "round",
+        lineWidth: 5,
+      },
+      isPaint: false,
+      lastPointerPosition: {},
+      compositeOperation: "source-over",
+      events: [],
+      eventRef: null,
+    }
+  },
+  created: function () {
+    this.database = firebase.database()
+    this.eventRef = this.database.ref('events/1')
+    this.eventRef.on('child_added', snapshot => {
+      const ss = snapshot.val()
+      this.events.push({
+        fromX: ss.fromX,
+        fromY: ss.fromY,
+        posX: ss.posX,
+        posY: ss.posY,
+        toX: ss.toX,
+        toY: ss.toY,
+      })
+      //this.draw(ss.fromX, ss.fromY, ss.posX, ss.posY, ss.toX, ss.toY)
+    })
+  },
+  mounted () {
+    this.canvas = this.$refs.canvas;
+    this.context = this.canvas.getContext("2d")
+
+    this.context.strokeStyle = this.drawConfig.strokeStyle
+    this.context.lineJoin = this.drawConfig.lineJoin
+    this.context.lineWidth = this.drawConfig.lineWidth
+
+    var container = this.$refs.container
+    this.stage = new Konva.Stage({
+      container,
+      width: this.canvasConfig.width,
+      height: this.canvasConfig.height,
+    })
+
+    this.image = new Konva.Image({
+      image: this.canvas,
+      x: 0,
+      y: 0,
+    })
+
+    this.drawLayer = new Konva.Layer();
+    this.drawLayer.add(this.image)
+    this.stage.add(this.drawLayer)
+    this.stage.draw()
+
+    this.stage.on("contentMousedown.proto", this.mousedown);
+    this.stage.on("contentTouchstart.proto", this.mousedown);
+
+    this.stage.on("contentMouseup.proto", this.mouseup);
+    this.stage.on("contentTouchend.proto", this.mouseup);
+
+    this.stage.on("contentMousemove.proto", this.mousemove);
+    this.stage.on("contentTouchmove.proto", this.mousemove);
+  },
+  watch: {
+    events: function (events) {
+      for (let val of events) {
+        this.draw(val.fromX, val.fromY, val.posX, val.posY, val.toX, val.toY)
+      }
+    }
+  },
+  methods: {
+    reset () {
+      this.events = []
+      this.eventRef.remove()
+    },
+    mousedown (event) {
+      this.isPaint = true
+      this.lastPointerPosition = this.stage.getPointerPosition()
+    },
+    mouseup (event) {
+      this.isPaint = false
+    },
+    mousemove (event) {
+      if (!this.isPaint) {
+        return
+      }
+
+      var localPosFrom = {
+        x: this.lastPointerPosition.x - this.image.x(),
+        y: this.lastPointerPosition.y - this.image.y(),
+      }
+
+      var pos = this.stage.getPointerPosition()
+      var localPosTo = {
+        x: pos.x - this.image.x(),
+        y: pos.y - this.image.y(),
+      }
+
+      this.eventRef.push({
+        fromX: localPosFrom.x,
+        fromY: localPosFrom.y,
+        posX: pos.x,
+        posY: pos.y,
+        toX: localPosTo.x,
+        toY: localPosTo.y,
+      })
+
+      this.events.push({
+        fromX: localPosFrom.x,
+        fromY: localPosFrom.y,
+        posX: pos.x,
+        posY: pos.y,
+        toX: localPosTo.x,
+        toY: localPosTo.y,
+      })
+
+      // this.draw(localPosFrom.x, localPosFrom.y, pos.x, pos.y, localPosTo.x, localPosTo.y)
+    },
+    draw (posFromX, posFromY, posX, posY, posToX, posToY) {
+      this.context.globalCompositeOperation = this.compositeOperation
+      this.context.beginPath()
+
+      this.context.moveTo(posFromX, posFromY);
+      this.context.lineTo(posToX, posToY);
+      this.context.closePath()
+      this.context.stroke()
+
+      this.lastPointerPosition = {
+        x: posX,
+        y: posY,
+      }
+      this.drawLayer.batchDraw()
+    }
   }
 }
 </script>
+
+<style>
+</style>
